@@ -11,6 +11,7 @@ class Settings:
     runs_dir: str = field(default_factory=lambda: os.getenv("RUNS_DIR", "./runs"))
     crm_path: str = field(default_factory=lambda: os.getenv("CRM_PATH", "./data/crm.json"))
     calendar_path: str = field(default_factory=lambda: os.getenv("CALENDAR_PATH", "./data/calendar.json"))
+    outbox_path: str = field(default_factory=lambda: os.getenv("OUTBOX_PATH", "./data/outbox.json"))
 
 
 settings = Settings()

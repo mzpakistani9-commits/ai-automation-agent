@@ -75,8 +75,15 @@ class Runner:
         transcript.append({"role": "tool", "name": "book_session", "output": book})
         crm = self.toolbox.execute("upsert_contact", json.dumps({"name": contact, "stage": "booked"}))
         transcript.append({"role": "tool", "name": "upsert_contact", "output": crm})
+        confirm = self.toolbox.execute(
+            "send_confirmation", json.dumps({"to": contact, "date": date, "time": time})
+        )
+        transcript.append({"role": "tool", "name": "send_confirmation", "output": confirm})
         data = json.loads(book)
-        return f"Booked! Your session is {data['time']} on {data['date']}. A confirmation was sent."
+        return (
+            f"Booked! Your session is {data['time']} on {data['date']}. "
+            f"A confirmation email is queued for {contact}."
+        )
 
     def _run_llm(self, message: str, transcript: List) -> str:
         from openai import OpenAI
@@ -87,8 +94,9 @@ class Runner:
                 "role": "system",
                 "content": (
                     "You are an AI automation assistant for a therapy practice. You can call tools "
-                    "to check availability, book sessions, list bookings, upsert CRM contacts, and "
-                    "answer FAQ questions. Prefer calling tools instead of guessing. Be concise."
+                    "to check availability, book sessions, list bookings, upsert CRM contacts, queue "
+                    "confirmation emails, and answer FAQ questions. Prefer calling tools instead of "
+                    "guessing. Be concise."
                 ),
             },
             {"role": "user", "content": message},

@@ -2,11 +2,12 @@
 
 import json
 
-from app.stores import CRMStore, CalendarStore
+from app.stores import CRMStore, CalendarStore, OutboxStore
 from tools.registry import Tool
 
 calendar = CalendarStore()
 crm = CRMStore()
+outbox = OutboxStore()
 
 
 def _check_availability(**kw):
@@ -61,6 +62,17 @@ def _lookup_faq(**kw):
     return {"ok": False, "answer": "I don't have a confident answer for that.", "matched": None}
 
 
+def _send_confirmation(**kw):
+    to = kw.get("to", "")
+    date = kw.get("date", "")
+    time = kw.get("time", "")
+    if not to:
+        return {"ok": False, "error": "recipient (to) is required"}
+    subject = f"Session confirmation — {date} at {time}"
+    body = f"Your session is confirmed for {date} at {time}. Reply to reschedule up to 24h ahead."
+    return outbox.queue(to, subject, body)
+
+
 def build_toolbox():
     return [
         Tool(
@@ -105,6 +117,16 @@ def build_toolbox():
             description="Answer a common question using the practice knowledge base.",
             parameters={"query": {"type": "string", "description": "The user's question"}},
             handler=_lookup_faq,
+        ),
+        Tool(
+            name="send_confirmation",
+            description="Queue a session-confirmation email to the client after a booking.",
+            parameters={
+                "to": {"type": "string", "description": "Recipient (client name or email)"},
+                "date": {"type": "string", "description": "Scheduled date YYYY-MM-DD"},
+                "time": {"type": "string", "description": "Scheduled time like 10:00"},
+            },
+            handler=_send_confirmation,
         ),
     ]
 

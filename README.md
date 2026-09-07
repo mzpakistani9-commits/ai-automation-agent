@@ -73,6 +73,7 @@ No key? `AGENT_PROVIDER=local` uses a keyword-routed fallback that drives the sa
 | `list_bookings` | `{}` | All upcoming booked sessions |
 | `upsert_contact` | `{name, email, phone, company, stage, notes}` | Creates/updates a client in the CRM |
 | `lookup_faq` | `{query}` | Answers practice questions (cost, cancellation, etc.) |
+| `send_confirmation` | `{to, date, time}` | Queues a session-confirmation email to the outbox |
 
 Tools are declared as **JSON schemas** (`tools/registry.py` → `Toolbox.schemas()`), the same shape OpenAI function-calling consumes, so adding a tool = adding a schema + a handler.
 
@@ -84,13 +85,14 @@ This is automated from a real business need: a clinical psychology intake bookin
 2. Checks the calendar for a free slot
 3. Books the session (no double-booking)
 4. Upserts the client into a CRM at `stage = booked`
-5. Logs the full transcript for audit/reporting
+5. Queues a confirmation email to the client
+6. Logs the full transcript for audit/reporting
 
 That seniority gap — understanding a business process and converting it into a reliable automated workflow — is exactly what the JD asks for.
 
 ## Eval / reliability story
 
-- **9 unit tests** cover tool schemas, unknown-tool handling, real booking state changes, CRM create-then-update, and end-to-end offline bookings (green in CI).
+- **10 unit tests** cover tool schemas, unknown-tool handling, real booking state changes, CRM create-then-update, confirmation-email queueing, and end-to-end offline bookings (green in CI).
 - **Audit trail** = every tool invocation is recorded; nothing happens silently.
 - **Deterministic offline mode** lets tests assert exact behavior without flaky LLM calls.
 - **Double-booking is impossible** by design — `book_session` only removes a slot that is actually open.
@@ -100,14 +102,14 @@ That seniority gap — understanding a business process and converting it into a
 ```text
 app/
 ├── config.py          # env-driven settings
-├── stores.py          # CalendarStore + CRMStore (JSON persistence)
+├── stores.py          # CalendarStore + CRMStore + OutboxStore (JSON persistence)
 ├── runner.py          # agent loop: LLM function calling + offline fallback
 └── main.py            # FastAPI: /agent /tools /runs, /health
 tools/
 ├── registry.py        # Tool dataclass + Toolbox (JSON schemas + dispatch)
-└── business_tools.py  # the 5 business tools
+└── business_tools.py  # the 6 business tools
 scripts/demo.py        # offline end-to-end demo
-tests/test_agent.py    # 9 tests, CI-gated
+tests/test_agent.py    # 10 tests, CI-gated
 ```
 
 ## Configuration

@@ -70,3 +70,29 @@ class CRMStore:
         self.data["contacts"].append(record)
         self._persist()
         return {"ok": True, "action": "created", "contact": record}
+
+class OutboxStore:
+    """Queries confirmation emails for a booking. Demo outbox: writes a JSON
+    message record instead of SMTP so it runs honestly with no credentials."""
+
+    def __init__(self, path: str = settings.outbox_path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self.path = path
+        self.data = {"messages": []}
+        if os.path.exists(path):
+            self.data = json.load(open(path))
+
+    def _persist(self):
+        with open(self.path, "w") as f:
+            json.dump(self.data, f, indent=2)
+
+    def queue(self, to: str, subject: str, body: str) -> dict:
+        record = {
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "queued_at": str(__import__("datetime").datetime.now()),
+        }
+        self.data["messages"].append(record)
+        self._persist()
+        return {"ok": True, "queued": True, "to": to, "subject": subject}
