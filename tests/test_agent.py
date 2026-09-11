@@ -7,6 +7,8 @@ os.environ.setdefault("RUNS_DIR", "/tmp/agent_test_runs")
 os.environ.setdefault("CRM_PATH", "/tmp/agent_test_crm.json")
 os.environ.setdefault("CALENDAR_PATH", "/tmp/agent_test_calendar.json")
 os.environ.setdefault("OUTBOX_PATH", "/tmp/agent_test_outbox.json")
+os.environ.setdefault("SLACK_OUTBOX_PATH", "/tmp/agent_test_slack_outbox.json")
+os.environ.setdefault("EMAIL_OUTBOX_PATH", "/tmp/agent_test_email_outbox.json")
 
 from tools.registry import Toolbox
 from tools.business_tools import build_toolbox
@@ -18,7 +20,7 @@ runner = Runner(toolbox)
 
 
 def test_toolbox_contains_business_tools():
-    for name in ("check_availability", "book_session", "list_bookings", "upsert_contact", "lookup_faq", "send_confirmation"):
+    for name in ("check_availability", "book_session", "list_bookings", "upsert_contact", "lookup_faq", "send_confirmation", "notify_slack", "send_email"):
         assert name in toolbox
 
 
@@ -81,6 +83,50 @@ def test_agent_requests_missing_slot_info():
 def test_lookup_faq_answers_cost():
     out = toolbox.execute("lookup_faq", '{"query":"how much does a session cost?"}')
     assert "Rs 4,000" in out
+
+
+def test_notify_slack_queues_offline():
+    out = toolbox.execute("notify_slack", '{"message":"New lead!","channel":"#leads"}')
+    assert '"queued": true' in out
+    path = "/tmp/agent_test_slack_outbox.json"
+    assert os.path.exists(path), "slack outbox file should be created"
+    with open(path) as f:
+        import json
+
+        msgs = json.load(f)["messages"]
+    assert msgs, "slack message should be recorded"
+    assert msgs[-1]["channel"] == "#leads"
+    assert msgs[-1]["message"] == "New lead!"
+
+
+def test_send_email_queues_offline():
+    out = toolbox.execute("send_email", '{"to":"client@example.com","subject":"Invoice","body":"Here is your invoice."}')
+    assert '"queued": true' in out
+    path = "/tmp/agent_test_email_outbox.json"
+    with open(path) as f:
+        import json
+
+        msgs = json.load(f)["messages"]
+    assert msgs and msgs[-1]["to"] == "client@example.com"
+
+
+def test_slack_and_email_require_input():
+    assert "error" in toolbox.execute("notify_slack", "{}")
+    assert "error" in toolbox.execute("send_email", "{}")
+
+
+def test_agent_slack_intent_offline():
+    out = runner.run("post to slack: new lead just booked")
+    transcript_names = [t.get("name") for t in out["transcript"] if t.get("role") == "tool"]
+    assert "notify_slack" in transcript_names
+    assert "Slack" in out["final_answer"]
+
+
+def test_agent_email_intent_offline():
+    out = runner.run("send an email to client@example.com about your invoice")
+    transcript_names = [t.get("name") for t in out["transcript"] if t.get("role") == "tool"]
+    assert "send_email" in transcript_names
+    assert "Email" in out["final_answer"]
 
 
 def json_dumps(d):

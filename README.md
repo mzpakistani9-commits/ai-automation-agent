@@ -74,6 +74,8 @@ No key? `AGENT_PROVIDER=local` uses a keyword-routed fallback that drives the sa
 | `upsert_contact` | `{name, email, phone, company, stage, notes}` | Creates/updates a client in the CRM |
 | `lookup_faq` | `{query}` | Answers practice questions (cost, cancellation, etc.) |
 | `send_confirmation` | `{to, date, time}` | Queues a session-confirmation email to the outbox |
+| `notify_slack` | `{message, channel}` | Posts to a Slack channel (webhook when `SLACK_WEBHOOK_URL` set, JSON outbox otherwise) |
+| `send_email` | `{to, subject, body}` | Sends an email via Resend when `RESEND_API_KEY` set, JSON outbox otherwise |
 
 Tools are declared as **JSON schemas** (`tools/registry.py` → `Toolbox.schemas()`), the same shape OpenAI function-calling consumes, so adding a tool = adding a schema + a handler.
 
@@ -92,7 +94,7 @@ That seniority gap — understanding a business process and converting it into a
 
 ## Eval / reliability story
 
-- **10 unit tests** cover tool schemas, unknown-tool handling, real booking state changes, CRM create-then-update, confirmation-email queueing, and end-to-end offline bookings (green in CI).
+- **15 unit tests** cover tool schemas, unknown-tool handling, real booking state changes, CRM create-then-update, confirmation-email queueing, offline Slack/email outboxes, and end-to-end offline bookings (green in CI).
 - **Audit trail** = every tool invocation is recorded; nothing happens silently.
 - **Deterministic offline mode** lets tests assert exact behavior without flaky LLM calls.
 - **Double-booking is impossible** by design — `book_session` only removes a slot that is actually open.
@@ -107,9 +109,9 @@ app/
 └── main.py            # FastAPI: /agent /tools /runs, /health
 tools/
 ├── registry.py        # Tool dataclass + Toolbox (JSON schemas + dispatch)
-└── business_tools.py  # the 6 business tools
+└── business_tools.py  # the 8 business tools
 scripts/demo.py        # offline end-to-end demo
-tests/test_agent.py    # 10 tests, CI-gated
+tests/test_agent.py    # 15 tests, CI-gated
 ```
 
 ## Configuration
@@ -121,6 +123,9 @@ tests/test_agent.py    # 10 tests, CI-gated
 | `MAX_STEPS` | `6` | Max tool rounds per run |
 | `RUNS_DIR` | `./runs` | Audit logs |
 | `CRM_PATH` / `CALENDAR_PATH` | `./data/*.json` | Business data persistence |
+| `SLACK_WEBHOOK_URL` | — | When set, `notify_slack` posts live to Slack (else JSON outbox) |
+| `RESEND_API_KEY` / `RESEND_FROM` | — | When set, `send_email` sends live via Resend (else JSON outbox) |
+| `SLACK_OUTBOX_PATH` / `EMAIL_OUTBOX_PATH` | `./data/*.json` | Offline queue for notify/email |
 
 ---
 

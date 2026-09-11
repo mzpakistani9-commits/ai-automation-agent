@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: ai-automation-agent
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: RUNS_DIR
+        value: /tmp/runs
+      - key: CRM_PATH
+        value: /tmp/data/crm.json
+      - key: CALENDAR_PATH
+        value: /tmp/data/calendar.json
+      - key: OUTBOX_PATH
+        value: /tmp/data/outbox.json
+      - key: SLACK_OUTBOX_PATH
+        value: /tmp/data/slack_outbox.json
+      - key: EMAIL_OUTBOX_PATH
+        value: /tmp/data/email_outbox.json
+      - key: PYTHON_VERSION
+        value: "3.12"
+    healthCheckPath: /health

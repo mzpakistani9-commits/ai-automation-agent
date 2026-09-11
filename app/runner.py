@@ -54,6 +54,21 @@ class Runner:
             tool_out = self.toolbox.execute("list_bookings", json.dumps({}))
             transcript.append({"role": "tool", "name": "list_bookings", "output": tool_out})
             return f"Here are your upcoming bookings.\n{tool_out}"
+        if intent == "slack":
+            msg = self._extract_after(message, ("slack", "channel", "post to", "notify"))
+            tool_out = self.toolbox.execute("notify_slack", json.dumps({"message": msg}))
+            transcript.append({"role": "tool", "name": "notify_slack", "output": tool_out})
+            return f"Slack message posted.\n{tool_out}"
+        if intent == "email":
+            subj_m = re.search(r"(?:subject|about)\s+['\"]?([^'\"]+)", message, re.IGNORECASE)
+            to_m = re.search(r"to\s+([\w.+-]+@[\w-]+\.[\w.]+)", message)
+            subject = subj_m.group(1).strip() if subj_m else "Agent notification"
+            to = to_m.group(1) if to_m else ""
+            tool_out = self.toolbox.execute(
+                "send_email", json.dumps({"to": to, "subject": subject, "body": message})
+            )
+            transcript.append({"role": "tool", "name": "send_email", "output": tool_out})
+            return f"Email queued.\n{tool_out}"
         return "I can help you check availability, book a session, or answer common questions. Try: 'I want to book a session'."
 
     def _book_flow(self, message: str, transcript: List) -> str:
@@ -95,8 +110,8 @@ class Runner:
                 "content": (
                     "You are an AI automation assistant for a therapy practice. You can call tools "
                     "to check availability, book sessions, list bookings, upsert CRM contacts, queue "
-                    "confirmation emails, and answer FAQ questions. Prefer calling tools instead of "
-                    "guessing. Be concise."
+                    "confirmation emails, send general emails, post to Slack, and answer FAQ "
+                    "questions. Prefer calling tools instead of guessing. Be concise."
                 ),
             },
             {"role": "user", "content": message},
@@ -125,6 +140,10 @@ class Runner:
         m = message.lower()
         if any(k in m for k in ("bookings", "upcoming", "my sessions", "list bookings")):
             return "bookings"
+        if "slack" in m or "post to channel" in m or "notify" in m:
+            return "slack"
+        if "email" in m or "send mail" in m or "drop an email" in m:
+            return "email"
         if "book" in m or "schedule" in m or "appointment" in m:
             return "book"
         if "availab" in m or "slot" in m or "when" in m or "free" in m:
@@ -132,6 +151,17 @@ class Runner:
         if any(k in m for k in ("cost", "cancel", "insurance", "online", "emergency", "length", "long", "fee")):
             return "faq"
         return "fallback"
+
+    @staticmethod
+    def _extract_after(message: str, keys: tuple) -> str:
+        lower = message.lower()
+        for key in keys:
+            idx = lower.find(key)
+            if idx != -1:
+                candidate = message[idx + len(key) :].strip(" :,;-\"'")
+                if candidate:
+                    return candidate
+        return message
 
     def _save(self, run_id: str, payload: Dict):
         os.makedirs(settings.runs_dir, exist_ok=True)

@@ -1,7 +1,18 @@
-"""Business tools for the AI automation agent — the same ones I run in my practice."""
+"""Business tools for the AI automation agent — the same ones I run in my practice.
+
+Real integrations activate when the corresponding env var is set:
+  SLACK_WEBHOOK_URL → Slack webhook POST
+  RESEND_API_KEY    → Resend transactional email API
+Otherwise both tools queue to a local JSON outbox (honest offline demo).
+"""
 
 import json
+import os
+from datetime import datetime
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
+from app.config import settings
 from app.stores import CRMStore, CalendarStore, OutboxStore
 from tools.registry import Tool
 
@@ -73,6 +84,77 @@ def _send_confirmation(**kw):
     return outbox.queue(to, subject, body)
 
 
+# --- Slack / email helpers (JSON outbox in offline mode, real HTTP when keys are set) ---
+
+
+def _queue_slack(channel: str, message: str) -> dict:
+    path = settings.slack_outbox_path
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    data = json.load(open(path)) if os.path.exists(path) else {"messages": []}
+    record = {"channel": channel, "message": message, "queued_at": str(datetime.now())}
+    data["messages"].append(record)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return {"ok": True, "queued": True, "channel": channel}
+
+
+def _queue_email(to: str, subject: str, body: str) -> dict:
+    path = settings.email_outbox_path
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    data = json.load(open(path)) if os.path.exists(path) else {"messages": []}
+    record = {"to": to, "subject": subject, "body": body, "from": settings.resend_from, "queued_at": str(datetime.now())}
+    data["messages"].append(record)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return {"ok": True, "queued": True, "to": to, "subject": subject}
+
+
+def _notify_slack(**kw):
+    message = kw.get("message", "")
+    channel = kw.get("channel", "#general")
+    if not message:
+        return {"ok": False, "error": "message is required"}
+    if settings.slack_webhook_url:
+        try:
+            req = Request(
+                settings.slack_webhook_url,
+                data=json.dumps({"text": message, "channel": channel}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            resp = urlopen(req, timeout=10)
+            return {"ok": True, "sent": True, "channel": channel, "status": resp.status}
+        except (URLError, OSError) as exc:
+            return {"ok": False, "error": f"Slack send failed: {exc}"}
+    return _queue_slack(channel, message)
+
+
+def _send_email(**kw):
+    to = kw.get("to", "")
+    subject = kw.get("subject", "")
+    body = kw.get("body", "")
+    if not (to and subject and body):
+        return {"ok": False, "error": "to, subject and body are required"}
+    if settings.resend_api_key:
+        try:
+            payload = json.dumps({
+                "from": settings.resend_from,
+                "to": [to],
+                "subject": subject,
+                "text": body,
+            }).encode()
+            req = Request(
+                "https://api.resend.com/emails",
+                data=payload,
+                headers={"Authorization": f"Bearer {settings.resend_api_key}", "Content-Type": "application/json"},
+            )
+            resp = urlopen(req, timeout=10)
+            data = json.loads(resp.read())
+            return {"ok": True, "sent": True, "to": to, "id": data.get("id")}
+        except (URLError, OSError) as exc:
+            return {"ok": False, "error": f"Email send failed: {exc}"}
+    return _queue_email(to, subject, body)
+
+
 def build_toolbox():
     return [
         Tool(
@@ -127,6 +209,25 @@ def build_toolbox():
                 "time": {"type": "string", "description": "Scheduled time like 10:00"},
             },
             handler=_send_confirmation,
+        ),
+        Tool(
+            name="notify_slack",
+            description="Send a Slack message to a channel (e.g. new lead, booking, alert).",
+            parameters={
+                "message": {"type": "string", "description": "Message text to post"},
+                "channel": {"type": "string", "description": "Slack channel like #general or #leads"},
+            },
+            handler=_notify_slack,
+        ),
+        Tool(
+            name="send_email",
+            description="Send a general email (not the confirmation) to any recipient.",
+            parameters={
+                "to": {"type": "string", "description": "Recipient email"},
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+            },
+            handler=_send_email,
         ),
     ]
 
